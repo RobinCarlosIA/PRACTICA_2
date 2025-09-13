@@ -1,0 +1,94 @@
+-import json                                                                      # Para leer/escribir la base de conocimiento en un archivo .json
+import os                                                                        # Para verificar si existe el archivo de la base de conocimiento
+import re                                                                        # Para normalizar texto con expresiones regulares
+
+
+KB_FILE = "kb_simple.json"                                                      
+
+# --- Base de conocimiento por defecto (3 líneas precargadas) ---
+DEFAULT_KB = [                                                                   
+    {"q": "hola", "a": "¡Hola! :)", "topic": "saludo"},                          # Entrada 1: si el usuario dice "hola", responder "¡Hola! :)"
+    {"q": "como estas", "a": "Muy bien, ¿y tú?", "topic": "smalltalk"},          # Entrada 2: si dice "como estas", responder "Muy bien, ¿y tú?"
+    {"q": "de que te gustaria hablar",                                           # Entrada 3: si dice "de que te gustaria hablar"...
+     "a": "De lo que quieras: escuela, trabajo o algún hobby.",                  # ...responder este texto
+     "topic": "smalltalk"}                                                       # Etiqueta opcional de tema
+]                                                                                # Cierra la lista DEFAULT_KB
+
+# --- Función para "normalizar" texto: volverlo comparable de forma simple ---
+def normalize(s):                                                                # Define la función normalize con parámetro s (string)
+    s = s.lower()                                                                # Convierte todo a minúsculas
+    # Sustitución manual de vocales acentuadas para no depender de librerías
+    s = (s.replace("á", "a")                                                     # Reemplaza á -> a
+           .replace("é", "e")                                                    # Reemplaza é -> e
+           .replace("í", "i")                                                    # Reemplaza í -> i
+           .replace("ó", "o")                                                    # Reemplaza ó -> o
+           .replace("ú", "u")                                                    # Reemplaza ú -> u
+           .replace("ü", "u")                                                    # Reemplaza ü -> u
+           .replace("ñ", "ñ"))                                                   # Conserva la ñ tal cual
+    s = re.sub(r"[^a-z0-9¿?¡!ñ\s]", " ", s)                                      # Quita símbolos raros; deja letras/números/espacios/¿?¡! y ñ
+    s = re.sub(r"\s+", " ", s).strip()                                           # Reduce múltiples espacios a uno y recorta extremos
+    return s                                                                     # Devuelve el texto normalizado
+
+# --- Cargar la base de conocimiento desde disco (o crearla si no existe) ---
+def load_kb():                                                                   # Define load_kb (sin parámetros)
+    if not os.path.exists(KB_FILE):                                              # Si NO existe el archivo JSON...
+        save_kb(DEFAULT_KB)                                                      # ...guarda la KB por defecto en disco
+        return list(DEFAULT_KB)                                                  # ...y retorna una copia de esa KB por defecto
+    try:                                                                         # Intenta abrir y leer el JSON
+        with open(KB_FILE, "r", encoding="utf-8") as f:                          # Abre el archivo en modo lectura con UTF-8
+            data = json.load(f)                                                  # Carga el contenido JSON a un objeto Python (lista/dict)
+            if isinstance(data, list):                                           # Verifica que sea una lista (como esperamos)
+                return data                                                      # Retorna la lista leída
+    except Exception:                                                            # Si ocurre cualquier error al leer/parsear...
+        pass                                                                     # ...ignóralo y cae al retorno por defecto
+    return list(DEFAULT_KB)                                                      # Retorna una copia de la KB por defecto si algo falló
+
+# --- Guardar la base de conocimiento en disco ---
+def save_kb(kb):                                                                 # Define save_kb con parámetro kb (lista de dicts)
+    with open(KB_FILE, "w", encoding="utf-8") as f:                              # Abre el archivo en modo escritura con UTF-8
+        json.dump(kb, f, ensure_ascii=False, indent=2)                           # Escribe JSON con tildes (ensure_ascii=False) y bonito (indent=2)
+
+# --- Buscar respuesta en la KB (COINCIDENCIA EXACTA tras normalizar) ---
+def buscar_respuesta(user_text, kb):                                             # Define buscar_respuesta con el texto del usuario y la KB
+    n = normalize(user_text)                                                      # Normaliza el texto del usuario
+    for r in kb:                                                                  # Recorre cada regla/entrada de la KB
+        if normalize(r["q"]) == n:                                                # Si la pregunta almacenada (normalizada) es EXACTAMENTE igual...
+            return r["a"]                                                         # ...devuelve la respuesta asociada
+    return None                                                                   # Si no hay coincidencia exacta, devuelve None
+
+# --- Función principal del programa (bucle del chat) ---
+def main():                                                                       # Define main()
+    kb = load_kb()                                                                # Carga la base de conocimiento (desde disco o por defecto)
+    print("Chat simple con aprendizaje (escribe 'salir' para terminar).")        # Mensaje de bienvenida
+    print("Frases precargadas: 'hola' | 'como estas' | 'de que te gustaria hablar'")  # Muestra frases soportadas de inicio
+
+    while True:                                                                   # Inicia bucle infinito (hasta que el usuario escriba 'salir')
+        user = input("\nTú: ").strip()                                           # Pide al usuario un texto y quita espacios extra
+        if not user:                                                              # Si el usuario no escribió nada...
+            continue                                                              # ...vuelve a pedir (siguiente iteración)
+
+        if user.lower() == "salir":                                               # Si el usuario teclea 'salir'...
+            print("Bot: ¡Hasta luego!")                                           # ...despídete
+            break                                                                 # ...y termina el bucle (fin del programa)
+
+        ans = buscar_respuesta(user, kb)                                          # Intenta hallar una respuesta en KB
+        if ans:                                                                   # Si encontró respuesta...
+            print(f"Bot: {ans}")                                                  # ...muéstrala
+        else:                                                                     # Si NO encontró respuesta...
+            print(f"Bot: No tengo una respuesta para: \"{user}\".")               # ...avísalo al usuario
+            new_a = input("Bot: ¿Qué debería responder cuando alguien diga eso? (o deja vacío para omitir): ").strip()  # Pide enseñar respuesta
+            if new_a:                                                             # Si el usuario escribió una respuesta...
+                kb.append({                                                       # ...añade una nueva entrada a la KB
+                    "q": normalize(user),                                         # Guarda la pregunta normalizada para futuros matches exactos
+                    "a": new_a,                                                   # Guarda la respuesta tal cual la escribió el usuario
+                    "topic": "aprendido"                                          # Marca el origen como 'aprendido'
+                })
+                save_kb(kb)                                                       # Persiste la KB actualizada en disco (kb_simple.json)
+                print("Bot: ¡Gracias! He aprendido esa respuesta.")               # Confirma el aprendizaje
+            else:                                                                 # Si el usuario dejó vacío (no quiere enseñar)...
+                print("Bot: Entendido, no aprenderé esta vez.")                   # ...indica que no se guardó nada
+
+# --- Punto de entrada del script ---
+if __name__ == "__main__":                                                        
+    main()                                                                       
+
